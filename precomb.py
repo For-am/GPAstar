@@ -63,9 +63,9 @@ def getHash(mystr):
     coded =  mystr.encode()
     return hashlib.sha256(coded).hexdigest()
 
-def addDict(name,atoms,g,h,f,depth):
-    keys = ['name','atoms','g','h','f','depth']
-    values = [name,atoms, g, h, f,depth]
+def addDict(atoms,g,h,f,depth):
+    keys = ['atoms','g','h','f','depth']
+    values = [atoms, g, h, f,depth]
     tdict = dict(zip(keys,values))
     return tdict
 
@@ -102,7 +102,7 @@ def main():
     h = g_calcDist(sTree['initialgroname'], sTree['targetname'])
     f = (g*a) +h
     depth = 1
-    grohash = getHash(sTree['initialgroname'])
+    grohash = getHash('R')
     
     initname = sTree['initialgroname']
     finalname = 'g_' + grohash + '.gro'
@@ -120,7 +120,7 @@ def main():
     #atoms = u.atoms            
     name = sTree['initialgroname'];
     atoms = (sTree['initialgrocoordinates'])  
-    d = addDict(name,atoms,g,h,f,depth)
+    d = addDict(atoms,g,h,f,depth)
     sTree['R'] =  d
                      
         

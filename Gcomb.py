@@ -47,27 +47,30 @@ args = parser.parse_args()
 
 maxDepth = args.dep
 tolerance = args.tol
-
-def m_GenTpr(init,numseed,keyhash): 
+# m_GenTpr(parentKey,t,childKey)
+def m_GenTpr(parentKey,numseed,childKey): 
+    init = getHash(parentKey) + '.gro'
+    keyhash = getHash(childKey)
+    print('m',parentKey,init)
+    print('m',childKey,keyhash)
     #gmx grompp -f unfold.mdp -c md_0_3.gro  -p topol.top -o md_0_4.tpr
-    ######md version for gro
     os.system('gmx grompp -f fold'  + str(numseed) + '.mdp -c m_' + init +' -r m_' + init +' -p '+ args.top + ' -o m_' + keyhash +'.tpr   ')
   
-
-def g_GenTpr(init,numseed,keyhash): 
-    ########gmx version of gro
-    os.system('gmx grompp -f fold'  + str(numseed) + '.mdp -c ' + init +' -r ' + init +' -p '+ args.top + ' -o g_' + keyhash +'.tpr   ')
-    #gropath = os.path.realpath(init + '.gro')
-    #os.system('gmx grompp -f fold'  + str(numseed) + '.mdp -c ' + gropath +' -r ' + gropath +' -p '+ args.top + ' -o ' + keyhash +'.tpr')
-
-    
+#g_GenTpr(sTree[parentKey]['name'],t,childKey)  
+def g_GenTpr(parentKey,numseed,childKey): 
+    init = getHash(parentKey) + '.gro'
+    keyhash = getHash(childKey)
+    print('g',parentKey,init)
+    print('g',childKey,keyhash)
+    os.system('gmx grompp -f fold'  + str(numseed) + '.mdp -c g_' + init +' -r g_' + init +' -p '+ args.top + ' -o g_' + keyhash +'.tpr   ')
+   
 def getHash(mystr):
     coded =  mystr.encode()
     return hashlib.sha256(coded).hexdigest()
 
-def addDict(name,atoms,g,h,f,depth):
-    keys = ['name','atoms','g','h','f','depth']
-    values = [name,atoms, g, h, f,depth]
+def addDict(atoms,g,h,f,depth):
+    keys = ['atoms','g','h','f','depth']
+    values = [atoms, g, h, f,depth]
     tdict = dict(zip(keys,values))
     return tdict
 
@@ -97,8 +100,56 @@ def m_calcDist(initial,target):
     d = rmsd(mobile.atoms.positions,reference.atoms.positions)
     return d
 
-def Sim(parent,child,sTree,tpr): 
+def Sim(parentKey,childKey,sTree): 
+    childhash = getHash(childKey)
+    print("sim",childKey,childhash)
+    os.system("gmx mdrun -v -deffnm g_"+ childhash  +" -nice 19 -nt 8")
+
+    #remove tpr.log,edr,cpt,trr,
+    os.remove('g_'+childhash + ".log")
+    os.remove('g_'+childhash + ".edr")
+    os.remove('g_'+childhash + ".cpt")
+    os.remove('g_'+childhash + ".xtc")
+    os.remove('g_'+childhash + ".tpr")
+    childfileg = 'g_'+ childhash + '.gro' 
+    childfilem = 'm_'+ childhash + '.gro'
     
+    os.system("gmx mdrun -v -deffnm m_"+ childhash  +" -nice 19")
+    #remove tpr.log,edr,cpt,trr,
+    os.remove('m_'+childhash + ".log")
+    os.remove('m_'+childhash + ".edr")
+    os.remove('m_'+childhash + ".cpt")
+    os.remove('m_'+childhash + ".xtc")
+    os.remove('m_'+childhash + ".tpr")
+
+    u = mda.Universe(childfilem)
+    atoms = u.atoms
+
+    univ = mda.Universe(sTree['template'])
+    p = univ.atoms
+
+    temp = sTree[parentKey]['atoms']
+    p.positions = temp[0]
+    p.dimensions = temp[1]
+
+    g = sTree[parentKey]['g'] + m_calcDist(p, atoms)
+
+    univt = mda.Universe(sTree['template'])
+    t = univt.atoms.select_atoms('protein')
+
+    tempt = sTree['targetcoordinates']
+    t.positions = tempt[0]
+    t.dimensions = tempt[1]
+    h = m_calcDist(atoms,t)
+    f = (g * sTree['alpha']) + h
+    depth =sTree[parentKey]['depth'] + 1
+
+    tree = (atoms.positions,atoms.dimensions)
+
+    #os.remove(childfilem)
+    d = addDict(tree,g,h,f,depth)
+    sTree[childKey] = d
+'''
     #os.system("srun -T 8 singularity exec /nfshome/jphillips/images/gromacs.sif gmx mdrun -v -deffnm "+ tpr  +" -nice 19")
     os.system("gmx mdrun -v -deffnm g_"+ tpr  +" -nice 19 -nt 8")
     #remove tpr.log,edr,cpt,trr,
@@ -109,24 +160,12 @@ def Sim(parent,child,sTree,tpr):
     os.remove('g_'+tpr + ".tpr")
     tprfile = 'g_'+ tpr + '.gro'
     
-    #u = mda.Universe(tprfile)
-    #atoms = u.atoms
-    #just keep tpr.gro
-    #g = sTree[parent]['g'] + calcDist(sTree[parent]['name'], tprfile)
-    
-    #v = mda.Universe(sTree['target'])
-    #targ = v.atoms
-    
-    #h = calcDist(tprfile,sTree['target'])
-    #f = (g * sTree['alpha']) + h
-    #depth =sTree[parent]['depth'] + 1
     grohash = getHash(tpr)     
    
     initname = 'g_' + tpr + '.gro'
-    finalname = 'g_' + grohash + '.gro'
-    os.rename(initname,finalname)
-    #d = addDict(finalname,g,h,f,depth)
-
+    finalgname = 'g_' + grohash + '.gro'
+    os.rename(initname,finalgname)
+   
     #if tpr isn't there, skip run
     tprfile = 'm_'+ tpr + '.gro'
     os.system("gmx mdrun -v -deffnm m_"+ tpr  +" -nice 19")
@@ -134,7 +173,7 @@ def Sim(parent,child,sTree,tpr):
     os.remove('m_'+tpr + ".log")
     os.remove('m_'+tpr + ".edr")
     os.remove('m_'+tpr + ".cpt")
-    os.remove('m_'+tpr + ".xtc")
+    os.remove('m_'+tpr + ".xtc")v
     os.remove('m_'+tpr + ".tpr")
     
     u = mda.Universe(tprfile)
@@ -151,31 +190,29 @@ def Sim(parent,child,sTree,tpr):
     
     univt = mda.Universe(sTree['template'])
     t = univt.atoms.select_atoms('protein')
-    #t.positions = np.zeros(t.positions.shape)
-    #t.dimensions = np.zeros(t.dimensions.shape)
+
     tempt = sTree['targetcoordinates']
-    #print(t.positions.shape, tempt.shape)
     t.positions = tempt[0]
     t.dimensions = tempt[1]
     h = m_calcDist(atoms,t)
     f = (g * sTree['alpha']) + h
     depth =sTree[parent]['depth'] + 1
-    #grohash = getHash(tpr)     
    
-    initname = tpr
-    finalname = grohash + '.gro'
-    print("key", tprfile
-    os.rename(initname,finalname)
+    initname = tprfile
+    finalmname = 'm_'+grohash + '.gro'
+    print("key", tprfile)
+    os.rename(initname,finalmname)
     tree = (atoms.positions,atoms.dimensions)
     
-    d = addDict(finalname,tree,g,h,f,depth)
+    d = addDict(tree,g,h,f,depth)
     sTree[child] = d
+    '''
 
 def getChildrenKeys(parent_key,seed):
     return [parent_key + '_' + str(i)  for i in range(seed)]
 
 def getChildrenHash(keys):               
-    return [gethash(str(i)) for i in keys]
+    return [getHash(str(i)) for i in keys]
 
 
 def getChildrenhval(children):
@@ -209,50 +246,55 @@ def checkExist(children,sTree,i = 0):
     else:
         return (children[i] in sTree.keys() and checkExist(children,sTree, i+1))
     
+def writefile(c,myatoms,sTree):
+    mfilename ='m_'+ getHash(c) + '.gro'
+    temp =  sTree[c]['atoms']
+    myatoms.positions = temp[0]
+    myatoms.dimensions = temp[1]
+    myatoms.write(mfilename)
+
 def main():
-    sTree = shelve.open("tree", writeback = True)
-   
-    curr_key = 'R'
     
-    curr_depth = sTree[curr_key]['depth']
+    sTree = shelve.open("tree", writeback = True)
+    
+    parentKey = 'R'
+    curr_depth = sTree[parentKey]['depth']
     frontier = []
-    currNode = Node(curr_key,sTree[curr_key]['f'])
+    currNode = Node(parentKey,sTree[parentKey]['f'])
     frontier.append(currNode)
     foundGoal = False
     seed = sTree['seed']
         
     while len(frontier) != 0:   
-        
         universe = mda.Universe(sTree['template'])
         myatoms = universe.atoms
         
         currNode = frontier.pop()
-        curr_key = currNode.key
-        curr_depth = sTree[curr_key]['depth']
-        #goal check dist tolerance val h
-        if goalCheck(sTree,curr_key):
+        parentKey = currNode.key
+        curr_depth = sTree[parentKey]['depth']
+        
+        if goalCheck(sTree,parentKey):
             foundGoal = True
-            goalKey = curr_key
+            goalKey = parentKey
             break
         if curr_depth > maxDepth:
             continue
         if currNode.key not in sTree.keys():
             print("Error")    
-        children = getChildrenKeys(curr_key,seed)
-        if(checkExist(children,sTree)):
-            os.remove(sTree[curr_key]['gro'] )
-        #print("children",children)
-        for c,t in zip(children,range(seed)):
-            if c in sTree.keys():
-                N = Node(c,sTree[c]['f'])
+        children = getChildrenKeys(parentKey,seed)
+        for childKey,t in zip(children,range(seed)):
+            if childKey in sTree.keys():
+                N = Node(childKey,sTree[childKey]['f'])
                 frontier = addSortFrontier(frontier,N)
             else:
+                '''
                 h = getHash(c)
                 #writing required gro 
                 gfilename = sTree[curr_key]['name'] 
                 mfile = getHash(curr_key) + '.gro'
                 #myatoms = sTree[curr_key]['gro']
                 #myatoms.write(filename)
+                
                 #Generating tpr files for production
                 mfilename ='m_'+ mfile
                 temp =  sTree[curr_key]['atoms']
@@ -261,6 +303,7 @@ def main():
                 myatoms.write(mfilename)
                 g_GenTpr(gfilename,t,h)  
                 m_GenTpr(mfile,t,h)  
+                print(gfilename,mfilename)
                 #removing gro
                 #os.remove(mfilename)
                 
@@ -269,7 +312,19 @@ def main():
                 N = Node(c,sTree[c]['f'])
                 frontier = addSortFrontier(frontier,N)
                 print(c)
-
+'''
+                print(parentKey,childKey)
+                print(getHash(parentKey))
+                writefile(parentKey,myatoms,sTree)
+                #writing required gro 
+                g_GenTpr(parentKey,t,childKey)  
+                m_GenTpr(parentKey,t,childKey)  
+                #Production step     
+                Sim(parentKey,childKey,sTree)
+                N = Node(childKey,sTree[childKey]['f'])
+                frontier = addSortFrontier(frontier,N)
+                print(childKey)
+                
     for i in sTree.keys():
         print(i)
         
